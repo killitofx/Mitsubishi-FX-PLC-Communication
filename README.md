@@ -1,10 +1,10 @@
 # Mitsubishi-FX-PLC-Communication
 这是一个使用PC和PLC通信的项目
 ## 使用方法
-* 初始化  把PLC使用的串口号传入就能完成初始化
-    > fx_plc = FX_PLC_CTR('com5')
-* 读取PLC内部参数
-  > fx_plc.digitalRead(Regional,point,read_byte_number=1,_bit=1,raw=0)  
+* 初始化  把PLC使用的串口号传入就能完成初始化  
+    `fx_plc = FX_PLC_CTR('com5')`
+* 读取PLC内部参数  
+  `fx_plc.digitalRead(Regional,point,read_byte_number=1,_bit=1,raw=0)`  
 
   * Regional为PLC内部存储区域，暂时支持X，Y，D，M  
   * point 为PLC地址编号  

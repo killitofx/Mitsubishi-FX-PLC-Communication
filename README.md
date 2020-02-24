@@ -2,7 +2,10 @@
 这是一个使用PC和PLC通信的项目
 ## 使用方法
 * 初始化  把PLC使用的串口号传入就能完成初始化  
-    `fx_plc = FX_PLC_CTR('com5')`
+    `fx_plc = FX_PLC_CTR(com,show_log_level='INFO')`
+    * com PLC连接的com口
+    * show_log_level 控制台输出日志等级,可选DEBUG,INFO,WARNING,ERROR
+  
 * 读取PLC内部参数  
   `fx_plc.digital_read(Regional,point,read_byte_number=1,_bit=1,raw=0)`  
   * Regional为PLC内部存储区域，暂时支持X，Y，D，M 不支持D区特殊继电器，如D8000以后的）  
@@ -10,15 +13,27 @@
   * read_byte_number 为一次读取的BYTE数，默认为1，读取8位数据，在Regional为D时失效  
   * _bit 为只输出当前地址的数据，默认为1，0/1可选，当该值为1时且read_byte_number=1，输出当前地址的值，在Regional为d时失效 
   * raw 为输出PLC返回的原始值的开关，默认为0。当为1时，该函数返回PLC输出的原始数据  
+
 * 写入PLC参数  
   `digital_write(Regional,point,data,_bit=1,write_byte_number=1)`  
   * Regional为PLC内部存储区域，暂时支持Y，D，M（不支持D区特殊继电器，如D8000以后的） 
   * point 为PLC地址编号
   * data 为写入值，在对Y区和M区，值为1，0（通/断），在D区为二进制字符串
   * _bit 为只修改当前bit，默认为1，为0时，data中需写入整个byte的数据。该参数对D区无效
-  * write_byte_number 当目标区域为Y或M区且_bit=时无效。该参数为一次写入的byte量，推荐不能超过4  
+  * write_byte_number 当目标区域为Y或M区且_bit=1时无效。该参数为一次写入的byte量，推荐不能超过4  
   * 该函数的返回值为1，表示执行成功，为0表示执行失败
+  
+* 强制ON/OFF
+  `switch(Regional,point,state)`  
+  * Regional为PLC内部存储区域，支持S(0-999),X(0-177)八进制,Y(1-177)八进制,T(0-255,)M(0-1023),C(0-255),SM(8000-8255)
+  * point 点
+  * state 状态，0/1
+  
 ## 栗子
+  * 初始化 
+    `fx_plc = FX_PLC_CTR('com5')`  
+    设置PLC连接在计算机的COM5口上
+
   * 读取X0的值
     `fx_plc.digital_read('x',0)`  
     返回值为0，表示当前X0无输入；返回1，表示当前X0有输入  
@@ -39,12 +54,13 @@
     `fx_plc.digital_read('d',123)`  
     返回值为0000000000000000，一个D占用16bit的空间
   
-  * 修改M128的值为1 
+  * ~~修改M128的值为1 
     `fx_plc.digital_write('m',128,1)`  
-    返回值为1，表示操作成功  
+    返回值为1，表示操作成功~~  
+    不推荐使用,速度过慢，消耗性能严重，建议使用switch指令
 
   * 修改Y7-Y0的值为'00110101'
-    `fx_plc.digital_write('y',0,'00110101',0)`  
+    `fx_plc.digital_write('y',0,'00110101',0)`    
     返回值为1，表示操作成功 其中point可为Y0-Y7中任意值  
 
   * 修改D509的值为10 `fx_plc.digital_write('d',509,fx_plc.dec_2_bin(10))`  
@@ -53,4 +69,11 @@
   * 修改M0-M15的值 `fx_plc.digital_write('m',0,'1000000000000001',0,2)` 
     返回值1，表示操作成功，查看程序，M0和M15吸合
 
+  * 设置Y17为ON状态 `fx_plc.switch('y',17,1)`  
+    返回值1，表示操作成功，查看程序，M0和M15吸合
 
+  * 设置S999为OFF状态 `fx_plc.switch('s',999,0)`   
+    返回值1，表示操作成功，查看程序，M0和M15吸合
+
+  * 设置T0为触发状态 `fx_plc.switch('t',0,1)`   
+    返回值1，表示操作成功，查看程序，M0和M15吸合

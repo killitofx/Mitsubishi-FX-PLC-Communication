@@ -1,21 +1,36 @@
 import serial
 import string
 import binascii
-from time import sleep
+from time import sleep,strftime,localtime
 
 
 Octal_number=['0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F']
 Hexadecimal_word = {'A':'11','B':'12','C':'13','D':'14','E':'15','F':'16'}
 
 class FX_PLC_CTR(object):
-    def __init__(self,port):
-        self.s=serial.Serial(port,9600,7,'E',1)
+    def __init__(self,com,show_log_level='INFO'):
+        self.s=serial.Serial(com,9600,7,'E',1)
+        self.show_log_level = show_log_level
 
     def __del__(self):
         self.s.close()
     
     def logger(self,level,message):
-        print('[{}]:{}'.format(level,message))
+        level_list = ['DEBUG','INFO','WARING','ERROR']
+        # 读取输出等级
+        if self.show_log_level in level_list:
+            index = level_list.index(self.show_log_level)
+        else:
+            index = 0
+        # 计算输出等级
+        if level in level_list:
+            _idx = level_list.index(level)
+        else:
+            _idx = 4
+        # 判断是否输出
+        if index <= _idx:
+            now = strftime("%Y-%m-%d %H:%M:%S", localtime())
+            print('{} [{}] {}'.format(now,level,message))
     
     # 返回编号对应地址，method为8/10进制
     def get_address_area(self,num,method=10):
@@ -74,6 +89,7 @@ class FX_PLC_CTR(object):
         return num
 
     def digital_read(self,Regional,point,read_byte_number=1,_bit=1,raw=0):
+        self.logger('INFO','准备对PLC进行读操作')
         # 构造元件读取请求参数
         cache = ['30']
         # 检测参数是否合法
@@ -158,6 +174,7 @@ class FX_PLC_CTR(object):
             return '请求的指令存在问题'
         # 解析
         else:
+            self.logger('INFO','读操作执行成功')
             payload = receive_data[1:-3]
             # 在read_byte_number=1且_bit=1时，返回单个地址的值
             if read_byte_number == 1 and _bit:
@@ -177,6 +194,7 @@ class FX_PLC_CTR(object):
 
 
     def digital_write(self,Regional,point,data,_bit=1,write_byte_number=1):
+        self.logger('INFO','准备对PLC进行写操作')
         cache = ['31']
         # 检测参数是否合法
         if not Regional.upper() in 'YMD':
@@ -293,12 +311,147 @@ class FX_PLC_CTR(object):
         receive_data = self.send(output)
 
         if receive_data[0] == 6:
+            self.logger('INFO','写操作执行成功')
             return 1
         else:
+            self.logger('WARNING','写操作执行失败')
+            return 0 
+
+
+    def switch(self,Regional,point,state):
+        self.logger('INFO','准备对PLC进行强制ON/OFF操作')
+        point = int(point)
+        # 检查区域
+        if not Regional.upper() in 'SMXYT':
+            raise  Exception("{}区暂不支持本操作".format(Regional.upper()))
+        # 检查状态
+        if state:
+            cache = ['37']
+        else:
+            cache = ['38']
+        # 寻找地址
+        if  Regional.upper() == 'Y':
+            if point > 177 or point < 0:
+                raise  Exception("不存在此点位")
+            address = self.onoff_address('0500',point,8)
+        elif Regional.upper() == 'X':
+            if point > 177 or point < 0:
+                raise  Exception("不存在此点位")
+            address = self.onoff_address('0400',point,8)
+        elif Regional.upper() == 'S':
+            if point > 999 or point < 0:
+                raise  Exception("不存在此点位")
+            address = self.onoff_address('0000',point)
+        elif Regional.upper() == 'T':
+            if point > 255 or point < 0:
+                raise  Exception("不存在此点位")
+            address = self.onoff_address('0600',point)
+        elif Regional.upper() == 'M':
+            if point > 1023 or point < 0:
+                raise  Exception("不存在此点位")
+            address = self.onoff_address('0800',point)
+        elif Regional.upper() == 'C':
+            if point > 255 or point < 0:
+                raise  Exception("不存在此点位")
+            address = self.onoff_address('0E00',point)
+        elif Regional.upper() == 'SM':
+            point -= 8000 
+            if point > 255 or point < 0:
+                raise  Exception("不存在此点位")
+            address = self.onoff_address('0F00',point)
+        else:
+            raise  Exception("不存在此区域")
+
+        
+
+        # 第一位
+        cache.append(self.Hexadecimal_2_ascii(address[2]))
+        # 第二位
+        cache.append(self.Hexadecimal_2_ascii(address[3]))
+        # 第三位
+        cache.append(self.Hexadecimal_2_ascii(address[0]))
+        # 第四位
+        cache.append(self.Hexadecimal_2_ascii(address[1]))
+        # 结束符
+        cache.append('03')
+        # 计算校验码
+        a,b = self.Checksum(cache)
+        cache.append(a)
+        cache.append(b)
+        # 构造最终输出指令
+        output = '02 '
+        for i in cache:
+            output += '%s ' % i
+        self.logger('DEBUG','准备向PLC发送指令：{}'.format(output))
+        # 发送指令
+        receive_data = self.send(output)
+        if receive_data[0] == 6:
+            self.logger('INFO','强制ON/OFF操作完成')
+            return 1
+        else:
+            self.logger('WARNING','强制ON/OFF操作失败')
             return 0 
 
 
 
+    def onoff_address(self,base_address,point,method=10):
+        point = int(point)
+        b0 = base_address[0]
+        b1 = base_address[1]
+        b2 = 0
+        b3 = 0
+        if method == 10:
+            b1 = self.hex_2_dec((base_address[1]))
+            # b1 = self.hex_2_dec(int(base_address[1]))
+            # 处理第二位
+            c1 = int(point/256)
+            if c1 > 0:
+                b1 = b1 + c1
+            b1 = self.dec_2_hex(b1)
+            # 处理第三位
+            c2 = int(point/16)
+            if c2 > 0:
+                b2+=c2
+            b2 = self.dec_2_hex(b2)
+            # 处理第四位
+            c3 = int(point%16)
+            if c3 > 0:
+                b3+=c3
+            b3 = self.dec_2_hex(b3)
+            output = b0 + str(b1) + str(b2) + str(b3)
+            self.logger('DEBUG','准备修改地址：{}'.format(output))
+            return output
+        if method == 8:
+            # 错误处理
+            if point > 77 and point < 100:
+                raise  Exception("不存在此点位")
+            # 处理第三位
+            c2 = int(point/20)
+            if c2 > 0:
+                b2+=c2
+            #  八进制修改
+            if b2 > 3:
+                b2 -=1
+            b2 = self.dec_2_hex(b2)
+            # 处理第四位
+            c3 = int(point%20)
+            # 错误处理
+            if c3 == 8 or c3 == 9 or c3 == 18 or c3 == 19:
+                raise  Exception("不存在此点位")
+            # 计算真实值
+            if c3>8:
+                c3-=2
+            b3 = self.dec_2_hex(c3)
+            output = b0 + b1 + str(b2) + str(b3)
+            self.logger('DEBUG','准备修改地址：{}'.format(output))
+            return output
+
+    
+    def dec_2_hex(self,num):
+        return hex(num)[-1].upper()
+
+    def hex_2_dec(self,num):
+        return int('0x{}'.format(num),16)
 
     def send(self,data):
         receive= []
@@ -326,6 +479,7 @@ class FX_PLC_CTR(object):
 
 if __name__ == '__main__':
     fx_plc = FX_PLC_CTR('com5')
+    fx_plc.switch('y',0,1)
     fx_plc.digital_write('d',123,fx_plc.dec_2_bin(10))
     print(fx_plc.digital_read('d',123))
     
